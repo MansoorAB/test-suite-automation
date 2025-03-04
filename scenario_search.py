@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import chromadb
 from chromadb.config import Settings
@@ -12,9 +13,13 @@ def read_csv(input_file: str) -> pd.DataFrame:
 
 def setup_vector_db(df: pd.DataFrame) -> chromadb.Client:
     """Initialize ChromaDB and store scenario data with embeddings."""
-    # Initialize ChromaDB client
+    # Get the root directory path
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(root_dir, "chroma_db")
+    
+    # Initialize ChromaDB client with absolute path
     client = chromadb.Client(Settings(
-        persist_directory="./chroma_db",
+        persist_directory=db_path,
         anonymized_telemetry=False
     ))
     
@@ -72,12 +77,21 @@ def print_search_results(
         print(f"\nResult {idx + 1} (Similarity: {1 - distance:.2f})")
         print(f"Scenario: {row['Scenario']}")
         print(f"Feature: {row['Feature']}")
-        print(f"Packages: {row['Packages']}")
+        print("Packages:")
+        # Split packages by ** and print each with @ prefix on same line
+        packages = row['Packages'].split(' ** ') if row['Packages'] != "NA" else []
+        print("  " + " ".join(f"@{package}" for package in packages))
         print("BDD Steps:")
-        for step in row['BDD'].split(' ** '):
+        # Split by ** and print each step on a new line
+        steps = row['BDD'].split(' ** ')
+        for step in steps:
             print(f"  - {step}")
         if row['Example'] != "NA":
-            print(f"Examples: {row['Example']}")
+            print("Examples:")
+            # Split examples by ** and print each on a new line with proper indentation
+            example_parts = row['Example'].split('**')
+            for part in example_parts:
+                print(f"           {part.strip()}")
         print("-" * 50)
 
 
