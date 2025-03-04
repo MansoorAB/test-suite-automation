@@ -53,7 +53,7 @@ def display_scenario_details(row: pd.Series):
         st.write(row['Feature'])
         
         st.write("**Packages:**")
-        packages = row['Packages'].split(' ** ') if row['Packages'] != "NA" else []
+        packages = row['Packages'].split(' ** ') if pd.notna(row['Packages']) and row['Packages'] != "NA" else []
         st.write("  " + " ".join(f"@{package}" for package in packages))
     
     with col2:
@@ -62,12 +62,12 @@ def display_scenario_details(row: pd.Series):
     
     # BDD Steps
     st.write("**BDD Steps:**")
-    steps = row['BDD'].split(' ** ')
+    steps = row['BDD'].split(' ** ') if pd.notna(row['BDD']) else []
     for step in steps:
         st.write(f"- {step}")
     
     # Examples
-    if row['Example'] != "NA":
+    if pd.notna(row['Example']) and row['Example'] != "NA":
         st.write("**Examples:**")
         example_parts = row['Example'].split('**')
         for part in example_parts:

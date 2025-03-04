@@ -79,14 +79,14 @@ def print_search_results(
         print(f"Feature: {row['Feature']}")
         print("Packages:")
         # Split packages by ** and print each with @ prefix on same line
-        packages = row['Packages'].split(' ** ') if row['Packages'] != "NA" else []
+        packages = row['Packages'].split(' ** ') if pd.notna(row['Packages']) and row['Packages'] != "NA" else []
         print("  " + " ".join(f"@{package}" for package in packages))
         print("BDD Steps:")
         # Split by ** and print each step on a new line
-        steps = row['BDD'].split(' ** ')
+        steps = row['BDD'].split(' ** ') if pd.notna(row['BDD']) else []
         for step in steps:
             print(f"  - {step}")
-        if row['Example'] != "NA":
+        if pd.notna(row['Example']) and row['Example'] != "NA":
             print("Examples:")
             # Split examples by ** and print each on a new line with proper indentation
             example_parts = row['Example'].split('**')
