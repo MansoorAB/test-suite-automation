@@ -17,29 +17,54 @@ def setup_vector_db(df: pd.DataFrame) -> chromadb.Client:
     root_dir = os.path.dirname(os.path.abspath(__file__))
     db_path = os.path.join(root_dir, "chroma_db")
     
-    # Initialize ChromaDB client with absolute path
-    client = chromadb.Client(Settings(
-        persist_directory=db_path,
-        anonymized_telemetry=False
-    ))
+    print(f"Creating/accessing vector database at: {db_path}")
     
-    # Create or get collection
-    collection = client.create_collection(
-        name="scenarios",
-        embedding_function=embedding_functions.DefaultEmbeddingFunction()
-    )
+    # Create the directory if it doesn't exist
+    os.makedirs(db_path, exist_ok=True)
+    print(f"Database directory created/verified at: {db_path}")
     
-    # Prepare documents for embedding (only Scenario column)
-    documents = df['Scenario'].tolist()
-    ids = [f"scenario_{idx}" for idx in range(len(documents))]
-    
-    # Add documents to collection
-    collection.add(
-        documents=documents,
-        ids=ids
-    )
-    
-    return client
+    try:
+        # Initialize ChromaDB client with absolute path
+        client = chromadb.PersistentClient(path=db_path)
+        print("Created persistent client")
+        
+        # Delete existing collection if it exists
+        try:
+            client.delete_collection("scenarios")
+            print("Deleted existing scenarios collection")
+        except:
+            print("No existing scenarios collection found")
+        
+        # Create new collection
+        collection = client.create_collection(
+            name="scenarios",
+            embedding_function=embedding_functions.DefaultEmbeddingFunction()
+        )
+        print("Created new scenarios collection")
+        
+        # Prepare documents for embedding (only Scenario column)
+        documents = df['Scenario'].tolist()
+        ids = [f"scenario_{idx}" for idx in range(len(documents))]
+        
+        print(f"Adding {len(documents)} scenarios to the database")
+        print("Documents to be added:", documents)
+        
+        # Add documents to collection
+        collection.add(
+            documents=documents,
+            ids=ids
+        )
+        
+        # Verify documents were added
+        count = collection.count()
+        print(f"Collection now contains {count} documents")
+        
+        print("Database setup complete")
+        return client
+        
+    except Exception as e:
+        print(f"Error setting up database: {str(e)}")
+        raise
 
 
 def search_scenarios(
@@ -105,6 +130,16 @@ def main():
     # Setup vector database
     client = setup_vector_db(df)
     print("Vector database initialized with scenarios")
+    
+    # Verify database exists
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    db_path = os.path.join(root_dir, "chroma_db")
+    if os.path.exists(db_path):
+        print(f"Database directory exists at: {db_path}")
+        print("Contents of database directory:")
+        print(os.listdir(db_path))
+    else:
+        print("Warning: Database directory was not created!")
     
     # Example searches
     queries = [

@@ -16,11 +16,21 @@ def get_vector_db() -> chromadb.Client:
     root_dir = os.path.dirname(os.path.abspath(__file__))
     db_path = os.path.join(root_dir, "chroma_db")
     
+    # Check if database directory exists
+    if not os.path.exists(db_path):
+        st.error("Vector database not found! Please run scenario_search.py first to create the database.")
+        st.stop()
+    
     # Initialize ChromaDB client with existing database
-    client = chromadb.Client(Settings(
-        persist_directory=db_path,
-        anonymized_telemetry=False
-    ))
+    client = chromadb.PersistentClient(path=db_path)
+    
+    # Check if collection exists
+    try:
+        collection = client.get_collection("scenarios")
+        st.success("Successfully connected to scenarios collection")
+    except Exception as e:
+        st.error("Scenarios collection not found! Please run scenario_search.py first to create the collection.")
+        st.stop()
     
     return client
 
@@ -32,6 +42,11 @@ def search_scenarios(
 ):
     """Search for similar scenarios using semantic search."""
     collection = client.get_collection("scenarios")
+    
+    # Get total number of documents
+    total_docs = collection.count()
+    # Adjust n_results if it's greater than total documents
+    n_results = min(n_results, total_docs)
     
     results = collection.query(
         query_texts=[query],
@@ -77,7 +92,7 @@ def display_scenario_details(row: pd.Series):
 def main():
     st.set_page_config(
         page_title="Scenario Search",
-        page_icon="��",
+        page_icon="🔍",
         layout="wide"
     )
     
