@@ -62,11 +62,12 @@ def load_data_to_chroma(client: chromadb.Client, df: pd.DataFrame):
         metadatas = []
         
         for _, row in df.iterrows():
+            # Convert None values to empty strings to avoid ChromaDB error
             metadata = {
-                "feature": row['Feature'],
-                "packages": row['Packages'] if pd.notna(row['Packages']) else None,
-                "bdd": row['BDD'] if pd.notna(row['BDD']) else None,
-                "example": row['Example'] if pd.notna(row['Example']) else None
+                "feature": row['Feature'] if pd.notna(row['Feature']) else "",
+                "packages": row['Packages'] if pd.notna(row['Packages']) else "",
+                "bdd": row['BDD'] if pd.notna(row['BDD']) else "",
+                "example": row['Example'] if pd.notna(row['Example']) else ""
             }
             metadatas.append(metadata)
         
@@ -122,16 +123,20 @@ async def get_scenario(request: QueryRequest):
             
             # Parse BDD steps
             bdd_steps = []
-            if metadata.get('bdd'):
+            if metadata.get('bdd') and metadata['bdd'] != "":
                 bdd_steps = metadata['bdd'].split(' ** ')
+            
+            # Convert empty strings back to None for the response
+            packages = None if not metadata.get('packages') or metadata['packages'] == "" else metadata['packages']
+            example = None if not metadata.get('example') or metadata['example'] == "" else metadata['example']
             
             result = ScenarioResult(
                 scenario=scenario,
                 similarity=round(1 - distance, 2),  # Convert distance to similarity score
                 feature=metadata.get('feature', ''),
-                packages=metadata.get('packages', None),
+                packages=packages,
                 bdd_steps=bdd_steps,
-                example=metadata.get('example', None)
+                example=example
             )
             response_results.append(result)
         
