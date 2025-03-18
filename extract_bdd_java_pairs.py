@@ -185,23 +185,31 @@ class BDDJavaExtractor:
             # Convert Cucumber regex pattern to Python regex pattern
             regex_pattern = java_pattern
             
+            # First handle the escaped quotes with a temporary placeholder
+            regex_pattern = regex_pattern.replace('\\"', '{{QUOTE}}')
+            
             # Handle Cucumber's ([^"]*) pattern - matches any text between quotes
-            regex_pattern = regex_pattern.replace('([^"]*)', '.*?')
+            regex_pattern = regex_pattern.replace('([^"]*)', '([^"]*)')
             
             # Handle Cucumber's (.*) pattern - matches any text
-            regex_pattern = regex_pattern.replace('(.*)', '.*?')
+            regex_pattern = regex_pattern.replace('(.*)', '(.*?)')
             
-            # Handle escaped quotes and other special characters
-            regex_pattern = regex_pattern.replace('\\"', '"')
-            regex_pattern = regex_pattern.replace('\\', '\\\\')
+            # Restore quotes and escape them properly
+            regex_pattern = regex_pattern.replace('{{QUOTE}}', '"')
             
-            # Escape regex special characters except for the wildcards we want to keep
-            for char in '[]()+?.^$':
-                if char not in '.*?':
-                    regex_pattern = regex_pattern.replace(char, '\\' + char)
+            # Escape special regex characters
+            regex_pattern = re.escape(regex_pattern)
             
-            # Replace any remaining Cucumber capture groups with wildcards
-            regex_pattern = re.sub(r'\\\(.*?\\\)', '.*?', regex_pattern)
+            # Unescape the capture groups we want to keep
+            regex_pattern = regex_pattern.replace('\\(', '(').replace('\\)', ')')
+            regex_pattern = regex_pattern.replace('\\[', '[').replace('\\]', ']')
+            
+            # Remove the escaped $ at the end if present
+            regex_pattern = regex_pattern.rstrip('\\$')
+            
+            # Replace capture groups with wildcards for actual matching
+            regex_pattern = re.sub(r'\(\[\^"\]\*\)', '.*?', regex_pattern)
+            regex_pattern = re.sub(r'\(\.\*\?\)', '.*?', regex_pattern)
             
             try:
                 # Create a pattern that allows for any text where parameters would be
@@ -210,17 +218,7 @@ class BDDJavaExtractor:
                     return impl_data
             except re.error:
                 logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
-                
-                # Try simpler pattern matching as fallback
-                simple_pattern = re.sub(r'"[^"]*"', '".*?"', java_pattern)
-                simple_pattern = re.sub(r'\([^)]+\)', '.*?', simple_pattern)
-                
-                try:
-                    if re.match(f"^{simple_pattern}$", step_text, re.DOTALL):
-                        logger.debug(f"Found match using simplified pattern")
-                        return impl_data
-                except re.error:
-                    pass
+                continue
         
         # If no direct match, try fuzzy matching with improved word matching
         logger.debug("No exact match found, trying fuzzy matching")
