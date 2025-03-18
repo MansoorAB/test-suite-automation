@@ -178,26 +178,21 @@ class BDDJavaExtractor:
         """Convert a Cucumber step pattern to Python regex pattern"""
         logger.debug(f"Original pattern: {pattern}")
         
-        # First, escape all special regex characters except parentheses
-        pattern = re.sub(r'([\[\]{}\\^$.|?*+])', r'\\\1', pattern)
+        # First, let's handle the start and end markers
+        if pattern.startswith('^'):
+            pattern = pattern[1:]  # Remove the ^ as we'll add it later
+        if pattern.endswith('$'):
+            pattern = pattern[:-1]  # Remove the $ as we'll add it later
         
-        # Handle the escaped quotes in the pattern
-        pattern = pattern.replace('\\"', '__QUOTE__')
+        # Create a regex that will match the actual text with quoted parameters
+        # 1. Replace Cucumber's ([^"]*) with a regex that matches any text between quotes
+        pattern = pattern.replace('([^"]*)', '([^"]+)')
         
-        # Handle Cucumber's ([^"]*) pattern - this is for matching any text between quotes
-        pattern = pattern.replace('([^"]*)', '([^"]*)')
+        # 2. Escape any remaining regex special characters
+        pattern = re.escape(pattern)
         
-        # Handle Cucumber's (.*) pattern
-        pattern = pattern.replace('(.*)', '(.*?)')
-        
-        # Restore the quotes
-        pattern = pattern.replace('__QUOTE__', '"')
-        
-        # Replace capture groups with actual regex for matching quoted text
-        pattern = re.sub(r'\(\[\^"\]\*\)', '[^"]*', pattern)
-        
-        # Remove any $ at the end of the pattern
-        pattern = pattern.rstrip('$')
+        # 3. Now replace the escaped quotes and capture groups back to proper regex
+        pattern = pattern.replace('\\"\\(\\[\\^\\"\\"\\]\\+\\)\\"', '"([^"]+)"')
         
         logger.debug(f"Converted pattern: {pattern}")
         return pattern
@@ -227,7 +222,10 @@ class BDDJavaExtractor:
                 if match:
                     logger.debug(f"Found exact match with pattern: {java_pattern}")
                     logger.debug(f"Matched groups: {match.groups()}")
-                    return impl_data
+                    # Verify that the captured groups match the quoted text in step_text
+                    quoted_texts = re.findall(r'"([^"]+)"', step_text)
+                    if match.groups() == tuple(quoted_texts):
+                        return impl_data
                     
             except re.error as e:
                 logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
