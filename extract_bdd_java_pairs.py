@@ -178,21 +178,21 @@ class BDDJavaExtractor:
         """Convert a Cucumber step pattern to Python regex pattern"""
         logger.debug(f"Original pattern: {pattern}")
         
-        # First, let's handle the start and end markers
-        if pattern.startswith('^'):
-            pattern = pattern[1:]  # Remove the ^ as we'll add it later
-        if pattern.endswith('$'):
-            pattern = pattern[:-1]  # Remove the $ as we'll add it later
+        # Handle start/end markers
+        if not pattern.startswith('^'):
+            pattern = '^' + pattern
+        if not pattern.endswith('$'):
+            pattern = pattern + '$'
         
-        # Create a regex that will match the actual text with quoted parameters
-        # 1. Replace Cucumber's ([^"]*) with a regex that matches any text between quotes
-        pattern = pattern.replace('([^"]*)', '([^"]+)')
+        # Convert the pattern to match actual text with parameters
+        # First, temporarily replace the capture groups
+        pattern = pattern.replace('([^"]*)', '___CAPTURE___')
         
-        # 2. Escape any remaining regex special characters
+        # Escape special regex characters
         pattern = re.escape(pattern)
         
-        # 3. Now replace the escaped quotes and capture groups back to proper regex
-        pattern = pattern.replace('\\"\\(\\[\\^\\"\\"\\]\\+\\)\\"', '"([^"]+)"')
+        # Restore the capture groups for matching any text between quotes
+        pattern = pattern.replace('___CAPTURE___', '[^"]*')
         
         logger.debug(f"Converted pattern: {pattern}")
         return pattern
@@ -209,23 +209,21 @@ class BDDJavaExtractor:
                 # Convert the Cucumber pattern to Python regex
                 regex_pattern = self.convert_cucumber_to_regex(java_pattern)
                 
-                # Create regex that matches the entire step
-                full_pattern = f"^{regex_pattern}$"
-                
                 # Log the patterns for debugging
                 logger.debug(f"Step text: {step_text}")
                 logger.debug(f"Java pattern: {java_pattern}")
-                logger.debug(f"Regex pattern: {full_pattern}")
+                logger.debug(f"Regex pattern: {regex_pattern}")
+                
+                # Extract quoted strings from step text
+                step_quoted_texts = re.findall(r'"([^"]+)"', step_text)
+                
+                # Create a pattern version of the step text for matching
+                step_pattern = re.sub(r'"[^"]+"', '"[^"]*"', step_text)
                 
                 # Try to match
-                match = re.match(full_pattern, step_text, re.DOTALL)
-                if match:
-                    logger.debug(f"Found exact match with pattern: {java_pattern}")
-                    logger.debug(f"Matched groups: {match.groups()}")
-                    # Verify that the captured groups match the quoted text in step_text
-                    quoted_texts = re.findall(r'"([^"]+)"', step_text)
-                    if match.groups() == tuple(quoted_texts):
-                        return impl_data
+                if re.match(regex_pattern, step_pattern):
+                    logger.debug(f"Found match with pattern: {java_pattern}")
+                    return impl_data
                     
             except re.error as e:
                 logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
