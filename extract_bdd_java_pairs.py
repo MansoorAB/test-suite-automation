@@ -36,8 +36,8 @@ class BDDJavaExtractor:
             logger.info(f"Found {len(java_files)} Java files")
             
             # Regex patterns for step annotations
-            step_pattern = re.compile(r'@(?:Given|When|Then|And|But)\s*\(\s*"(.+?)"\s*\)')
-            method_pattern = re.compile(r'public\s+void\s+\w+\s*\([^)]*\)\s*\{(.*?)\}', re.DOTALL)
+            step_pattern = re.compile(r'@(?:Given|When|Then|And|But)\s*\(\s*"(.*?)"\s*\)', re.DOTALL)
+            method_pattern = re.compile(r'public\s+void\s+\w+\s*\([^)]*\)\s*(?:throws\s+[^{]+)?\s*\{(.*?)\}', re.DOTALL)
             
             for java_file in java_files:
                 logger.debug(f"Processing {java_file}")
