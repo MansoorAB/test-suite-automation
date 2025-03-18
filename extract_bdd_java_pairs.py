@@ -178,82 +178,90 @@ class BDDJavaExtractor:
         """Find the Java implementation that matches this step text"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
+        def convert_cucumber_to_regex(pattern: str) -> str:
+            """Convert a Cucumber step pattern to Python regex pattern"""
+            # Replace Cucumber's ([^"]*) with a capture group for quoted text
+            pattern = pattern.replace('([^"]*)', '([^"]+)')
+            
+            # Escape special regex characters but preserve the capture groups
+            pattern = re.sub(r'([\[\]{}()\\^$.|?*+])', r'\\\1', pattern)
+            
+            # Unescape the capture groups
+            pattern = pattern.replace('\\(', '(').replace('\\)', ')')
+            
+            # Handle escaped quotes properly
+            pattern = pattern.replace('\\"', '"')
+            
+            # Replace the capture groups with non-greedy match for any text
+            pattern = re.sub(r'\([^\)]+\)', '(.*?)', pattern)
+            
+            return pattern
+
         # Try direct match first
         for pattern, impl_data in self.step_definitions.items():
             java_pattern = impl_data["pattern"]
             
-            # Convert Cucumber regex pattern to Python regex pattern
-            regex_pattern = java_pattern
-            
-            # First handle the escaped quotes with a temporary placeholder
-            regex_pattern = regex_pattern.replace('\\"', '{{QUOTE}}')
-            
-            # Handle Cucumber's ([^"]*) pattern - matches any text between quotes
-            regex_pattern = regex_pattern.replace('([^"]*)', '([^"]*)')
-            
-            # Handle Cucumber's (.*) pattern - matches any text
-            regex_pattern = regex_pattern.replace('(.*)', '(.*?)')
-            
-            # Restore quotes and escape them properly
-            regex_pattern = regex_pattern.replace('{{QUOTE}}', '"')
-            
-            # Escape special regex characters
-            regex_pattern = re.escape(regex_pattern)
-            
-            # Unescape the capture groups we want to keep
-            regex_pattern = regex_pattern.replace('\\(', '(').replace('\\)', ')')
-            regex_pattern = regex_pattern.replace('\\[', '[').replace('\\]', ']')
-            
-            # Remove the escaped $ at the end if present
-            regex_pattern = regex_pattern.rstrip('\\$')
-            
-            # Replace capture groups with wildcards for actual matching
-            regex_pattern = re.sub(r'\(\[\^"\]\*\)', '.*?', regex_pattern)
-            regex_pattern = re.sub(r'\(\.\*\?\)', '.*?', regex_pattern)
-            
             try:
-                # Create a pattern that allows for any text where parameters would be
-                if re.match(f"^{regex_pattern}$", step_text, re.DOTALL):
+                # Convert the Cucumber pattern to Python regex
+                regex_pattern = convert_cucumber_to_regex(java_pattern)
+                
+                # Create regex that matches the entire step
+                full_pattern = f"^{regex_pattern}$"
+                
+                # Log the patterns for debugging
+                logger.debug(f"Step text: {step_text}")
+                logger.debug(f"Java pattern: {java_pattern}")
+                logger.debug(f"Regex pattern: {full_pattern}")
+                
+                if re.match(full_pattern, step_text, re.DOTALL):
                     logger.debug(f"Found exact match with pattern: {java_pattern}")
                     return impl_data
-            except re.error:
+                    
+            except re.error as e:
                 logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
+                logger.debug(f"Error: {str(e)}")
                 continue
         
-        # If no direct match, try fuzzy matching with improved word matching
+        # If no direct match, try fuzzy matching as last resort
         logger.debug("No exact match found, trying fuzzy matching")
         
         def normalize_text(text: str) -> str:
-            # Remove quotes, parameters, and special characters for comparison
+            # Remove quotes and their content
             text = re.sub(r'"[^"]*"', 'PARAM', text)
-            text = re.sub(r'\([^)]+\)', 'PARAM', text)
+            # Remove Cucumber regex patterns
+            text = re.sub(r'\([^\)]+\)', 'PARAM', text)
+            # Remove special characters
             text = re.sub(r'[^\w\s]', '', text)
             return text.lower()
         
-        step_words = set(normalize_text(step_text).split())
+        step_normalized = normalize_text(step_text)
         best_match = None
         best_score = 0
         
         for pattern, impl_data in self.step_definitions.items():
-            pattern_words = set(normalize_text(pattern).split())
-            intersection = step_words.intersection(pattern_words)
+            pattern_normalized = normalize_text(pattern)
             
-            # Calculate score based on word matches and sequence
-            score = len(intersection)
+            # Split into words and compare
+            step_words = set(step_normalized.split())
+            pattern_words = set(pattern_normalized.split())
             
-            # Bonus points for matching words in sequence
-            step_seq = ' '.join(normalize_text(step_text).split())
-            pattern_seq = ' '.join(normalize_text(pattern).split())
+            # Calculate base score from word matches
+            common_words = step_words.intersection(pattern_words)
+            score = len(common_words) / max(len(step_words), len(pattern_words))
+            
+            # Bonus for matching word sequences
+            step_seq = ' '.join(step_normalized.split())
+            pattern_seq = ' '.join(pattern_normalized.split())
             if step_seq in pattern_seq or pattern_seq in step_seq:
-                score += 0.5
+                score += 0.2
             
             if score > best_score:
                 best_score = score
                 best_match = impl_data
         
         # Return the best match if it's reasonably good
-        if best_score >= len(step_words) * 0.4:  # Lowered threshold slightly
-            logger.debug(f"Found fuzzy match with score {best_score}/{len(step_words)}")
+        if best_score >= 0.6:  # Increased threshold for better accuracy
+            logger.debug(f"Found fuzzy match with score {best_score:.2f}")
             return best_match
         
         logger.debug("No suitable match found")
