@@ -184,16 +184,39 @@ class BDDJavaExtractor:
         if not pattern.endswith('$'):
             pattern = pattern + '$'
         
-        # Convert the pattern to match actual text with parameters
-        # First, temporarily replace the capture groups
-        pattern = pattern.replace('([^"]*)', '___CAPTURE___')
+        # Split the pattern into parts (text and capture groups)
+        parts = []
+        current_pos = 0
         
-        # Escape special regex characters
-        pattern = re.escape(pattern)
+        # Find all capture groups and their surrounding text
+        while True:
+            # Find next capture group
+            capture_match = re.search(r'"(\[\^"\]\*)"', pattern[current_pos:])
+            if not capture_match:
+                # Add remaining text
+                if current_pos < len(pattern):
+                    parts.append(('text', pattern[current_pos:]))
+                break
+            
+            # Add text before capture group
+            if capture_match.start() > 0:
+                parts.append(('text', pattern[current_pos:current_pos + capture_match.start()]))
+            
+            # Add capture group
+            parts.append(('capture', capture_match.group(0)))
+            current_pos += capture_match.end()
         
-        # Restore the capture groups for matching any text between quotes
-        pattern = pattern.replace('___CAPTURE___', '[^"]*')
+        # Build regex pattern
+        regex_parts = []
+        for part_type, part in parts:
+            if part_type == 'text':
+                # Escape special regex characters in text parts
+                regex_parts.append(re.escape(part))
+            else:
+                # Replace capture group with wildcard
+                regex_parts.append('"[^"]*"')
         
+        pattern = ''.join(regex_parts)
         logger.debug(f"Converted pattern: {pattern}")
         return pattern
     
@@ -201,7 +224,6 @@ class BDDJavaExtractor:
         """Find the Java implementation that matches this step text"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
-        # Try direct match first
         for pattern, impl_data in self.step_definitions.items():
             java_pattern = impl_data["pattern"]
             
@@ -209,19 +231,12 @@ class BDDJavaExtractor:
                 # Convert the Cucumber pattern to Python regex
                 regex_pattern = self.convert_cucumber_to_regex(java_pattern)
                 
-                # Log the patterns for debugging
                 logger.debug(f"Step text: {step_text}")
                 logger.debug(f"Java pattern: {java_pattern}")
                 logger.debug(f"Regex pattern: {regex_pattern}")
                 
-                # Extract quoted strings from step text
-                step_quoted_texts = re.findall(r'"([^"]+)"', step_text)
-                
-                # Create a pattern version of the step text for matching
-                step_pattern = re.sub(r'"[^"]+"', '"[^"]*"', step_text)
-                
-                # Try to match
-                if re.match(regex_pattern, step_pattern):
+                # Try to match the entire pattern
+                if re.match(regex_pattern, step_text):
                     logger.debug(f"Found match with pattern: {java_pattern}")
                     return impl_data
                     
