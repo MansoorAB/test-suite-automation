@@ -242,37 +242,45 @@ class BDDJavaExtractor:
         """Find the Java implementation that matches this step text using Gemini"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
-        # Create a few-shot prompt with examples
+        # Create a few-shot prompt with examples that better match your patterns
         few_shot_examples = """
         BDD Step: user verifies "Welcome to InSight!" popup and click "Next"
-        Matching Pattern: ^user verifies "([^"]*)" popup and click "([^"]*)"$
+        Available Pattern: ^user verifies "([^"]*)" popup and click "([^"]*)"$
+        ✓ MATCHES - because the text between quotes in BDD matches with ([^"]*) in pattern
         
         BDD Step: user verifies popup title "Sidebar Menu" and click "Next"
-        Matching Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
+        Available Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
+        ✓ MATCHES - because both the fixed text and parameterized parts align
+        
+        BDD Step: user verifies popup title "Tasks" and click "Next"
+        Available Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
+        ✓ MATCHES - same pattern structure with different parameter values
         
         BDD Step: user clicks on save button from drop down
-        Matching Pattern: ^user clicks on save button from drop down$
+        Available Pattern: ^user clicks on save button from drop down$
+        ✓ MATCHES - exact text match with no parameters
         """
         
         # Create the prompt for the current step
         prompt = f"""
-        Given a BDD step and a list of Cucumber step definition patterns, find the matching pattern.
-        The pattern should match exactly, considering that text in quotes in the BDD step matches with ([^"]*) in the pattern.
-        
-        Rules:
-        1. Text in quotes in the BDD step should match with ([^"]*) in the pattern
-        2. The pattern should start with ^ and end with $
-        3. The rest of the text should match exactly
-        4. Return only the matching pattern, no other text
-        
+        You are a pattern matching expert. Given a BDD step and available Cucumber step definition patterns, find the EXACT matching pattern.
+
+        Rules for matching:
+        1. Fixed text parts must match exactly (case-sensitive)
+        2. Text between quotes in BDD step (like "Welcome") matches with ([^"]*) in pattern
+        3. Pattern must account for entire step text, not partial matches
+        4. Pattern should start with ^ and end with $
+        5. Return ONLY the matching pattern, no explanation
+
         Examples:
         {few_shot_examples}
-        
+
         Available patterns:
         {json.dumps([impl_data["pattern"] for impl_data in self.step_definitions.values()], indent=2)}
-        
-        BDD Step: {step_text}
-        Matching Pattern:"""
+
+        BDD Step to match: {step_text}
+
+        Return the exact matching pattern or null if no match found. Return ONLY the pattern, nothing else:"""
         
         try:
             # Create model instance
@@ -280,10 +288,10 @@ class BDDJavaExtractor:
             
             # Set up generation config for precise output
             generation_config = {
-                "temperature": 0.1,  # Low temperature for more deterministic output
-                "top_p": 0.8,
-                "top_k": 40,
-                "max_output_tokens": 1024,
+                "temperature": 0.1,  # Very low temperature for deterministic output
+                "top_p": 0.1,       # More focused sampling
+                "top_k": 1,         # Most likely token only
+                "max_output_tokens": 100,
             }
             
             # Generate response
@@ -295,6 +303,11 @@ class BDDJavaExtractor:
             
             predicted_pattern = response.text.strip()
             logger.debug(f"LLM predicted pattern: {predicted_pattern}")
+            
+            # Handle null response
+            if predicted_pattern.lower() == "null":
+                logger.debug("LLM found no matching pattern")
+                return None
             
             # Find the implementation data for the predicted pattern
             for impl_data in self.step_definitions.values():
