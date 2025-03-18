@@ -174,36 +174,45 @@ class BDDJavaExtractor:
             logger.error(f"Error extracting feature steps: {str(e)}")
             raise
     
+    def convert_cucumber_to_regex(self, pattern: str) -> str:
+        """Convert a Cucumber step pattern to Python regex pattern"""
+        logger.debug(f"Original pattern: {pattern}")
+        
+        # First, escape all special regex characters except parentheses
+        pattern = re.sub(r'([\[\]{}\\^$.|?*+])', r'\\\1', pattern)
+        
+        # Handle the escaped quotes in the pattern
+        pattern = pattern.replace('\\"', '__QUOTE__')
+        
+        # Handle Cucumber's ([^"]*) pattern - this is for matching any text between quotes
+        pattern = pattern.replace('([^"]*)', '([^"]*)')
+        
+        # Handle Cucumber's (.*) pattern
+        pattern = pattern.replace('(.*)', '(.*?)')
+        
+        # Restore the quotes
+        pattern = pattern.replace('__QUOTE__', '"')
+        
+        # Replace capture groups with actual regex for matching quoted text
+        pattern = re.sub(r'\(\[\^"\]\*\)', '[^"]*', pattern)
+        
+        # Remove any $ at the end of the pattern
+        pattern = pattern.rstrip('$')
+        
+        logger.debug(f"Converted pattern: {pattern}")
+        return pattern
+    
     def _find_matching_implementation(self, step_text: str) -> Optional[Dict[str, Any]]:
         """Find the Java implementation that matches this step text"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
-        def convert_cucumber_to_regex(pattern: str) -> str:
-            """Convert a Cucumber step pattern to Python regex pattern"""
-            # Replace Cucumber's ([^"]*) with a capture group for quoted text
-            pattern = pattern.replace('([^"]*)', '([^"]+)')
-            
-            # Escape special regex characters but preserve the capture groups
-            pattern = re.sub(r'([\[\]{}()\\^$.|?*+])', r'\\\1', pattern)
-            
-            # Unescape the capture groups
-            pattern = pattern.replace('\\(', '(').replace('\\)', ')')
-            
-            # Handle escaped quotes properly
-            pattern = pattern.replace('\\"', '"')
-            
-            # Replace the capture groups with non-greedy match for any text
-            pattern = re.sub(r'\([^\)]+\)', '(.*?)', pattern)
-            
-            return pattern
-
         # Try direct match first
         for pattern, impl_data in self.step_definitions.items():
             java_pattern = impl_data["pattern"]
             
             try:
                 # Convert the Cucumber pattern to Python regex
-                regex_pattern = convert_cucumber_to_regex(java_pattern)
+                regex_pattern = self.convert_cucumber_to_regex(java_pattern)
                 
                 # Create regex that matches the entire step
                 full_pattern = f"^{regex_pattern}$"
@@ -213,8 +222,11 @@ class BDDJavaExtractor:
                 logger.debug(f"Java pattern: {java_pattern}")
                 logger.debug(f"Regex pattern: {full_pattern}")
                 
-                if re.match(full_pattern, step_text, re.DOTALL):
+                # Try to match
+                match = re.match(full_pattern, step_text, re.DOTALL)
+                if match:
                     logger.debug(f"Found exact match with pattern: {java_pattern}")
+                    logger.debug(f"Matched groups: {match.groups()}")
                     return impl_data
                     
             except re.error as e:
