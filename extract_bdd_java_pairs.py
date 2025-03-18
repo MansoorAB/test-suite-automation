@@ -37,7 +37,6 @@ class BDDJavaExtractor:
             
             # Regex patterns for step annotations
             step_pattern = re.compile(r'@(?:Given|When|Then|And|But)\s*\(\s*"(.*?)"\s*\)', re.DOTALL)
-            method_pattern = re.compile(r'public\s+void\s+\w+\s*\([^)]*\)\s*(?:throws\s+[^{]+)?\s*\{(.*?)\}', re.DOTALL)
             
             for java_file in java_files:
                 logger.debug(f"Processing {java_file}")
@@ -45,26 +44,48 @@ class BDDJavaExtractor:
                     with open(java_file, 'r', encoding='utf-8', errors='ignore') as f:
                         content = f.read()
                         
-                        # Find all step definition annotations and their methods
+                        # Find all step definition annotations
                         step_matches = step_pattern.finditer(content)
                         step_count = 0
                         
                         for step_match in step_matches:
                             step_text = step_match.group(1)
-                            # Find the method implementation that follows the annotation
                             start_pos = step_match.end()
-                            method_match = method_pattern.search(content[start_pos:])
                             
-                            if method_match:
-                                method_body = method_match.group(1).strip()
-                                # Convert regex pattern in step to a more readable format
-                                readable_step = self._convert_regex_to_readable(step_text)
-                                self.step_definitions[readable_step] = {
-                                    "pattern": step_text,
-                                    "implementation": method_body,
-                                    "file": os.path.basename(java_file)
-                                }
-                                step_count += 1
+                            # Find the method signature that follows the annotation
+                            method_sig_pattern = re.compile(r'public\s+void\s+\w+\s*\([^)]*\)\s*(?:throws\s+[^{]+)?\s*\{', re.DOTALL)
+                            method_sig_match = method_sig_pattern.search(content[start_pos:])
+                            
+                            if method_sig_match:
+                                method_sig = method_sig_match.group(0)
+                                method_start = start_pos + method_sig_match.end()
+                                
+                                # Find the matching closing brace by counting braces
+                                open_braces = 1
+                                close_pos = method_start
+                                
+                                while open_braces > 0 and close_pos < len(content):
+                                    if content[close_pos] == '{':
+                                        open_braces += 1
+                                    elif content[close_pos] == '}':
+                                        open_braces -= 1
+                                    close_pos += 1
+                                
+                                if open_braces == 0:
+                                    # Extract the complete method body including nested structures
+                                    method_body = content[method_start:close_pos-1].strip()
+                                    
+                                    # Include the method signature in the implementation
+                                    full_implementation = method_sig + "\n" + method_body + "\n}"
+                                    
+                                    # Convert regex pattern in step to a more readable format
+                                    readable_step = self._convert_regex_to_readable(step_text)
+                                    self.step_definitions[readable_step] = {
+                                        "pattern": step_text,
+                                        "implementation": full_implementation,
+                                        "file": os.path.basename(java_file)
+                                    }
+                                    step_count += 1
                         
                         logger.debug(f"Extracted {step_count} step definitions from {java_file}")
                 except Exception as e:
