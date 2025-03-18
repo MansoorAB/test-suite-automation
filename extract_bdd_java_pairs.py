@@ -6,6 +6,10 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 from typing import Dict, List, Any, Optional, Tuple
+from vertexai.generative_models import GenerativeModel
+import vertexai
+from google.cloud import aiplatform
+from config import VertexAIConfig
 
 
 # Configure logging
@@ -24,6 +28,20 @@ class BDDJavaExtractor:
         self.output_file = output_file
         self.step_definitions: Dict[str, Dict[str, Any]] = {}
         self.bdd_java_pairs: List[Dict[str, Any]] = []
+        
+        # Initialize Vertex AI configuration
+        self.vertex_config = VertexAIConfig()
+        
+        # Initialize Vertex AI
+        try:
+            vertexai.init(
+                project=self.vertex_config.project_id,
+                location=self.vertex_config.location
+            )
+            logger.info("Successfully initialized Vertex AI")
+        except Exception as e:
+            logger.error(f"Error initializing Vertex AI: {str(e)}")
+            raise
         
         logger.info(f"Initialized BDDJavaExtractor with feature_dir={feature_dir}, java_dir={java_dir}")
         
@@ -221,74 +239,76 @@ class BDDJavaExtractor:
         return pattern
     
     def _find_matching_implementation(self, step_text: str) -> Optional[Dict[str, Any]]:
-        """Find the Java implementation that matches this step text"""
+        """Find the Java implementation that matches this step text using Gemini"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
-        for pattern, impl_data in self.step_definitions.items():
-            java_pattern = impl_data["pattern"]
+        # Create a few-shot prompt with examples
+        few_shot_examples = """
+        BDD Step: user verifies "Welcome to InSight!" popup and click "Next"
+        Matching Pattern: ^user verifies "([^"]*)" popup and click "([^"]*)"$
+        
+        BDD Step: user verifies popup title "Sidebar Menu" and click "Next"
+        Matching Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
+        
+        BDD Step: user clicks on save button from drop down
+        Matching Pattern: ^user clicks on save button from drop down$
+        """
+        
+        # Create the prompt for the current step
+        prompt = f"""
+        Given a BDD step and a list of Cucumber step definition patterns, find the matching pattern.
+        The pattern should match exactly, considering that text in quotes in the BDD step matches with ([^"]*) in the pattern.
+        
+        Rules:
+        1. Text in quotes in the BDD step should match with ([^"]*) in the pattern
+        2. The pattern should start with ^ and end with $
+        3. The rest of the text should match exactly
+        4. Return only the matching pattern, no other text
+        
+        Examples:
+        {few_shot_examples}
+        
+        Available patterns:
+        {json.dumps([impl_data["pattern"] for impl_data in self.step_definitions.values()], indent=2)}
+        
+        BDD Step: {step_text}
+        Matching Pattern:"""
+        
+        try:
+            # Create model instance
+            model = GenerativeModel("gemini-1.5-pro")
             
-            try:
-                # Convert the Cucumber pattern to Python regex
-                regex_pattern = self.convert_cucumber_to_regex(java_pattern)
-                
-                logger.debug(f"Step text: {step_text}")
-                logger.debug(f"Java pattern: {java_pattern}")
-                logger.debug(f"Regex pattern: {regex_pattern}")
-                
-                # Try to match the entire pattern
-                if re.match(regex_pattern, step_text):
-                    logger.debug(f"Found match with pattern: {java_pattern}")
+            # Set up generation config for precise output
+            generation_config = {
+                "temperature": 0.1,  # Low temperature for more deterministic output
+                "top_p": 0.8,
+                "top_k": 40,
+                "max_output_tokens": 1024,
+            }
+            
+            # Generate response
+            response = model.generate_content(
+                prompt,
+                generation_config=generation_config,
+                safety_settings={"HARM_CATEGORY_DANGEROUS_CONTENT": "block_none"}
+            )
+            
+            predicted_pattern = response.text.strip()
+            logger.debug(f"LLM predicted pattern: {predicted_pattern}")
+            
+            # Find the implementation data for the predicted pattern
+            for impl_data in self.step_definitions.values():
+                if impl_data["pattern"] == predicted_pattern:
+                    logger.debug(f"Found match using LLM: {predicted_pattern}")
                     return impl_data
-                    
-            except re.error as e:
-                logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
-                logger.debug(f"Error: {str(e)}")
-                continue
-        
-        # If no direct match, try fuzzy matching as last resort
-        logger.debug("No exact match found, trying fuzzy matching")
-        
-        def normalize_text(text: str) -> str:
-            # Remove quotes and their content
-            text = re.sub(r'"[^"]*"', 'PARAM', text)
-            # Remove Cucumber regex patterns
-            text = re.sub(r'\([^\)]+\)', 'PARAM', text)
-            # Remove special characters
-            text = re.sub(r'[^\w\s]', '', text)
-            return text.lower()
-        
-        step_normalized = normalize_text(step_text)
-        best_match = None
-        best_score = 0
-        
-        for pattern, impl_data in self.step_definitions.items():
-            pattern_normalized = normalize_text(pattern)
             
-            # Split into words and compare
-            step_words = set(step_normalized.split())
-            pattern_words = set(pattern_normalized.split())
+            logger.debug(f"No implementation found for predicted pattern: {predicted_pattern}")
+            return None
             
-            # Calculate base score from word matches
-            common_words = step_words.intersection(pattern_words)
-            score = len(common_words) / max(len(step_words), len(pattern_words))
-            
-            # Bonus for matching word sequences
-            step_seq = ' '.join(step_normalized.split())
-            pattern_seq = ' '.join(pattern_normalized.split())
-            if step_seq in pattern_seq or pattern_seq in step_seq:
-                score += 0.2
-            
-            if score > best_score:
-                best_score = score
-                best_match = impl_data
-        
-        # Return the best match if it's reasonably good
-        if best_score >= 0.6:  # Increased threshold for better accuracy
-            logger.debug(f"Found fuzzy match with score {best_score:.2f}")
-            return best_match
-        
-        logger.debug("No suitable match found")
-        return None
+        except Exception as e:
+            logger.error(f"Error using LLM for pattern matching: {str(e)}")
+            logger.error(traceback.format_exc())
+            return None
     
     def save_to_json(self) -> None:
         """Save the extracted pairs to a JSON file"""

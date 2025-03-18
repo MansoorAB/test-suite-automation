@@ -1,3 +1,5 @@
 chromadb
 streamlit
 pandas
+google-cloud-aiplatform>=1.35.0
+vertexai>=0.0.1
