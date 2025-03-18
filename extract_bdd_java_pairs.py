@@ -180,51 +180,81 @@ class BDDJavaExtractor:
         
         # Try direct match first
         for pattern, impl_data in self.step_definitions.items():
-            # Convert regex pattern to Python regex and try to match
             java_pattern = impl_data["pattern"]
             
-            # Replace Cucumber expression placeholders with regex
+            # Convert Cucumber regex pattern to Python regex pattern
             regex_pattern = java_pattern
-            regex_pattern = regex_pattern.replace("\\", "\\\\")  # Escape backslashes
-            regex_pattern = regex_pattern.replace("(", "\\(").replace(")", "\\)")  # Escape parentheses
-            regex_pattern = regex_pattern.replace("[", "\\[").replace("]", "\\]")  # Escape brackets
-            regex_pattern = regex_pattern.replace(".", "\\.")  # Escape dots
-            regex_pattern = regex_pattern.replace("*", "\\*")  # Escape asterisks
-            regex_pattern = regex_pattern.replace("+", "\\+")  # Escape plus signs
-            regex_pattern = regex_pattern.replace("?", "\\?")  # Escape question marks
-            regex_pattern = regex_pattern.replace("{", "\\{").replace("}", "\\}")  # Escape braces
-            regex_pattern = regex_pattern.replace("$", "\\$")  # Escape dollar signs
-            regex_pattern = regex_pattern.replace("^", "\\^")  # Escape carets
             
-            # Replace capture groups with wildcards for matching
-            regex_pattern = re.sub(r'\\"\\\([^\\\)]+\\\)\\"', '".*?"', regex_pattern)
-            regex_pattern = re.sub(r'\\\([^\\\)]+\\\)', '.*?', regex_pattern)
+            # Handle Cucumber's ([^"]*) pattern - matches any text between quotes
+            regex_pattern = regex_pattern.replace('([^"]*)', '.*?')
+            
+            # Handle Cucumber's (.*) pattern - matches any text
+            regex_pattern = regex_pattern.replace('(.*)', '.*?')
+            
+            # Handle escaped quotes and other special characters
+            regex_pattern = regex_pattern.replace('\\"', '"')
+            regex_pattern = regex_pattern.replace('\\', '\\\\')
+            
+            # Escape regex special characters except for the wildcards we want to keep
+            for char in '[]()+?.^$':
+                if char not in '.*?':
+                    regex_pattern = regex_pattern.replace(char, '\\' + char)
+            
+            # Replace any remaining Cucumber capture groups with wildcards
+            regex_pattern = re.sub(r'\\\(.*?\\\)', '.*?', regex_pattern)
             
             try:
-                if re.match(f"^{regex_pattern}$", step_text):
+                # Create a pattern that allows for any text where parameters would be
+                if re.match(f"^{regex_pattern}$", step_text, re.DOTALL):
                     logger.debug(f"Found exact match with pattern: {java_pattern}")
                     return impl_data
             except re.error:
-                # If regex compilation fails, try a simpler approach
                 logger.debug(f"Regex compilation failed for pattern: {java_pattern}")
-                pass
+                
+                # Try simpler pattern matching as fallback
+                simple_pattern = re.sub(r'"[^"]*"', '".*?"', java_pattern)
+                simple_pattern = re.sub(r'\([^)]+\)', '.*?', simple_pattern)
+                
+                try:
+                    if re.match(f"^{simple_pattern}$", step_text, re.DOTALL):
+                        logger.debug(f"Found match using simplified pattern")
+                        return impl_data
+                except re.error:
+                    pass
         
-        # If no direct match, try a more fuzzy approach
+        # If no direct match, try fuzzy matching with improved word matching
         logger.debug("No exact match found, trying fuzzy matching")
-        step_words = set(re.findall(r'\b\w+\b', step_text.lower()))
+        
+        def normalize_text(text: str) -> str:
+            # Remove quotes, parameters, and special characters for comparison
+            text = re.sub(r'"[^"]*"', 'PARAM', text)
+            text = re.sub(r'\([^)]+\)', 'PARAM', text)
+            text = re.sub(r'[^\w\s]', '', text)
+            return text.lower()
+        
+        step_words = set(normalize_text(step_text).split())
         best_match = None
         best_score = 0
         
         for pattern, impl_data in self.step_definitions.items():
-            pattern_words = set(re.findall(r'\b\w+\b', pattern.lower()))
+            pattern_words = set(normalize_text(pattern).split())
             intersection = step_words.intersection(pattern_words)
             
-            if len(intersection) > best_score:
-                best_score = len(intersection)
+            # Calculate score based on word matches and sequence
+            score = len(intersection)
+            
+            # Bonus points for matching words in sequence
+            step_seq = ' '.join(normalize_text(step_text).split())
+            pattern_seq = ' '.join(normalize_text(pattern).split())
+            if step_seq in pattern_seq or pattern_seq in step_seq:
+                score += 0.5
+            
+            if score > best_score:
+                best_score = score
                 best_match = impl_data
         
         # Return the best match if it's reasonably good
-        if best_score >= len(step_words) * 0.5:
+        if best_score >= len(step_words) * 0.4:  # Lowered threshold slightly
             logger.debug(f"Found fuzzy match with score {best_score}/{len(step_words)}")
             return best_match
         
