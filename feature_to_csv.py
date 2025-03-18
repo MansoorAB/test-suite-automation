@@ -1,5 +1,6 @@
 import csv
 import re
+import json
 
 
 def parse_feature_file(file_path):
@@ -22,7 +23,7 @@ def parse_feature_file(file_path):
     for scenario in scenarios:
         # Extract tags
         tags = re.findall(r'@(\w+)', scenario)
-        packages = ' ** '.join(tags) if tags else "NA"
+        packages = tags if tags else []
         
         # Split scenario into lines and process
         lines = scenario.split('\n')
@@ -43,11 +44,8 @@ def parse_feature_file(file_path):
                 line = ' '.join(line.split())
                 bdd_steps.append(line)
         
-        # Join BDD steps with separator
-        bdd_text = ' ** '.join(bdd_steps)
-        
         # Check for Examples section
-        examples = "NA"
+        examples = []
         if "Examples:" in scenario:
             examples_section = scenario.split("Examples:")[1].strip()
             # Get both header and data rows
@@ -55,14 +53,14 @@ def parse_feature_file(file_path):
             if len(example_lines) >= 2:
                 header = example_lines[0].strip()
                 data = example_lines[1].strip()
-                examples = f"{header}**{data}"
+                examples = [header, data]
         
         rows.append([
             feature_name,
-            packages,
+            json.dumps(packages),  # Store as JSON string
             scenario_name,
-            bdd_text,
-            examples
+            json.dumps(bdd_steps),  # Store as JSON string
+            json.dumps(examples)   # Store as JSON string
         ])
     
     return rows

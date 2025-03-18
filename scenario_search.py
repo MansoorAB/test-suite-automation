@@ -4,11 +4,18 @@ import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
 from typing import List, Dict, Any
+import json
 
 
 def read_csv(input_file: str) -> pd.DataFrame:
     """Read CSV file using pandas."""
-    return pd.read_csv(input_file)
+    df = pd.read_csv(input_file)
+    
+    # Convert JSON strings to Python lists
+    for column in ['Packages', 'BDD', 'Example']:
+        df[column] = df[column].apply(lambda x: json.loads(x) if pd.notna(x) else [])
+    
+    return df
 
 
 def setup_vector_db(df: pd.DataFrame) -> chromadb.Client:
@@ -103,19 +110,18 @@ def print_search_results(
         print(f"Scenario: {row['Scenario']}")
         print(f"Feature: {row['Feature']}")
         print("Packages:")
-        # Split packages by ** and print each with @ prefix on same line
-        packages = row['Packages'].split(' ** ') if pd.notna(row['Packages']) and row['Packages'] != "NA" else []
+        # Print each package with @ prefix
+        packages = row['Packages']
         print("  " + " ".join(f"@{package}" for package in packages))
         print("BDD Steps:")
-        # Split by ** and print each step on a new line
-        steps = row['BDD'].split(' ** ') if pd.notna(row['BDD']) else []
+        # Print each step on a new line
+        steps = row['BDD']
         for step in steps:
             print(f"  - {step}")
-        if pd.notna(row['Example']) and row['Example'] != "NA":
+        if row['Example'] and len(row['Example']) > 0:
             print("Examples:")
-            # Split examples by ** and print each on a new line with proper indentation
-            example_parts = row['Example'].split('**')
-            for part in example_parts:
+            # Print each example part on a new line with proper indentation
+            for part in row['Example']:
                 print(f"           {part.strip()}")
         print("-" * 50)
 
