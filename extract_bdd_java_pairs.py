@@ -247,30 +247,35 @@ class BDDJavaExtractor:
         BDD Step: user verifies "Welcome to InSight!" popup and click "Next"
         Available Pattern: ^user verifies "([^"]*)" popup and click "([^"]*)"$
         ✓ MATCHES - because the text between quotes in BDD matches with ([^"]*) in pattern
-        
+
         BDD Step: user verifies popup title "Sidebar Menu" and click "Next"
         Available Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
         ✓ MATCHES - because both the fixed text and parameterized parts align
-        
-        BDD Step: user verifies popup title "Tasks" and click "Next"
-        Available Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
-        ✓ MATCHES - same pattern structure with different parameter values
-        
+
         BDD Step: user clicks on save button from drop down
         Available Pattern: ^user clicks on save button from drop down$
         ✓ MATCHES - exact text match with no parameters
+
+        BDD Step: user enters "admin@test.com" in the email field
+        Available Pattern: ^user enters "([^"]*)" in the email field$
+        ✓ MATCHES - single parameter in quotes matches ([^"]*) pattern
+
+        BDD Step: user selects format "PDF" from drop down
+        Available Pattern: ^user selects format "([^"]*)" from drop down$
+        ✓ MATCHES - fixed text with one parameter
         """
         
         # Create the prompt for the current step
         prompt = f"""
-        You are a pattern matching expert. Given a BDD step and available Cucumber step definition patterns, find the EXACT matching pattern.
+        You are a pattern matching expert for Cucumber step definitions. Given a BDD step and available patterns, find the EXACT matching pattern.
 
         Rules for matching:
         1. Fixed text parts must match exactly (case-sensitive)
         2. Text between quotes in BDD step (like "Welcome") matches with ([^"]*) in pattern
         3. Pattern must account for entire step text, not partial matches
         4. Pattern should start with ^ and end with $
-        5. Return ONLY the matching pattern, no explanation
+        5. Return ONLY the matching pattern, nothing else
+        6. If no pattern matches exactly, return "null"
 
         Examples:
         {few_shot_examples}
@@ -278,9 +283,9 @@ class BDDJavaExtractor:
         Available patterns:
         {json.dumps([impl_data["pattern"] for impl_data in self.step_definitions.values()], indent=2)}
 
-        BDD Step to match: {step_text}
+        BDD Step: {step_text}
 
-        Return the exact matching pattern or null if no match found. Return ONLY the pattern, nothing else:"""
+        Return ONLY the matching pattern or "null". No explanation:"""
         
         try:
             # Create model instance
