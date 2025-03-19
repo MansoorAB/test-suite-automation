@@ -6,16 +6,37 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
 
+def setup_logging(program_name: str) -> logging.Logger:
+    """Setup logging with organized directory structure"""
+    # Create program-specific log directory
+    timestamp = datetime.now().strftime('%Y%m%d')
+    log_dir = f'./logs/{program_name}/{timestamp}'
+    os.makedirs(log_dir, exist_ok=True)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger('extract_bdd_java_pairs')
+    # Create timestamped log file
+    time_of_day = datetime.now().strftime('%H%M%S')
+    log_file = f'{log_dir}/{time_of_day}.log'
 
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        filename=log_file,
+        filemode='w'
+    )
+    logger = logging.getLogger(program_name)
+
+    # Remove any existing console handlers
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+
+    return logger
+
+# Initialize logger
+logger = setup_logging('extract_bdd_java_pairs')
 
 class BDDJavaExtractor:
     def __init__(self, feature_dir: str, java_dir: str, output_file: str = "bdd_java_pairs.json"):
@@ -221,52 +242,67 @@ class BDDJavaExtractor:
         return pattern
     
     def _find_matching_implementation(self, step_text: str) -> Optional[Dict[str, Any]]:
-        """Find the Java implementation that matches this step text using direct pattern matching"""
-        logger.debug(f"Finding implementation for step: {step_text}")
-        
-        def normalize_step(text: str) -> Tuple[str, List[str]]:
-            """Convert a step text into a normalized form and extract quoted parameters"""
-            # Extract all quoted strings
-            quoted_texts = re.findall(r'"([^"]+)"', text)
-            # Replace quoted strings with a placeholder
-            normalized = re.sub(r'"[^"]+"', 'QUOTED_PARAM', text)
-            return normalized, quoted_texts
-        
-        def matches_pattern(step: str, pattern: str) -> bool:
-            """Check if a step matches a Cucumber pattern"""
-            try:
-                # Remove ^ and $ from pattern
-                pattern = pattern.strip('^$')
-                
-                # Extract quoted parameters from step
-                step_norm, step_params = normalize_step(step)
-                
-                # Convert Cucumber pattern to comparable form
-                pattern_norm = re.sub(r'"?\(\[\^"\]\*\)"?', 'QUOTED_PARAM', pattern)
-                
-                # Compare normalized forms
-                if step_norm == pattern_norm:
-                    logger.debug(f"Found match: {pattern}")
-                    return True
-                    
-                return False
-                
-            except Exception as e:
-                logger.error(f"Error in pattern matching: {str(e)}")
-                return False
-        
+        """Find the Java implementation that matches this step text using text normalization"""
+        logger.debug("\n" + "="*80)
+        logger.debug("MATCHING STEP:")
+        logger.debug("-"*40)
+        logger.debug(f"BDD Actual    : {step_text}")
+
+        def normalize_text(text: str) -> str:
+            """Replace quoted strings with QUOTED_TEXTn placeholders"""
+            # Find all quoted strings
+            quoted_strings = re.findall(r'"([^"]*)"', text)
+            normalized = text
+            
+            # Replace each quoted string with a placeholder
+            for i, quoted in enumerate(quoted_strings, 1):
+                normalized = normalized.replace(f'"{quoted}"', f'QUOTED_TEXT{i}')
+            
+            return normalized
+
+        def normalize_pattern(pattern: str) -> str:
+            """Replace Cucumber capture patterns with QUOTED_TEXTn placeholders"""
+            # Remove ^ and $ if they exist
+            pattern = pattern.strip('^$')
+            
+            # Remove escaped quotes and capture pattern
+            count = 1
+            # Match the pattern \"([^\"]*)\"
+            while True:
+                match = re.search(r'\\"\(\[\^\\"\]\*\)\\"', pattern)
+                if not match:
+                    break
+                pattern = pattern[:match.start()] + f'QUOTED_TEXT{count}' + pattern[match.end():]
+                count += 1
+            
+            return pattern
+
         try:
+            # Normalize the BDD step text
+            normalized_step = normalize_text(step_text)
+            logger.debug(f"BDD Normalized: {normalized_step}")
+            logger.debug("-"*40)
+            
             # Try to find exact match
             for pattern, impl_data in self.step_definitions.items():
-                if matches_pattern(step_text, impl_data["pattern"]):
-                    logger.debug(f"Found matching implementation for: {step_text}")
+                java_pattern = impl_data["pattern"]
+                normalized_pattern = normalize_pattern(java_pattern)
+                
+                logger.debug(f"Step Pattern Actual    : {java_pattern}")
+                logger.debug(f"Step Pattern Normalized: {normalized_pattern}")
+                
+                if normalized_step == normalized_pattern:
+                    logger.debug("✓ MATCH FOUND!")
                     return impl_data
+                
+                logger.debug("-"*40)
             
-            logger.debug(f"No matching implementation found for: {step_text}")
+            logger.debug("✗ NO MATCH FOUND")
             return None
             
         except Exception as e:
-            logger.error(f"Error finding implementation: {str(e)}")
+            logger.error(f"Error in pattern matching: {str(e)}")
+            logger.error(traceback.format_exc())
             return None
     
     def save_to_json(self) -> None:
