@@ -6,10 +6,6 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 from typing import Dict, List, Any, Optional, Tuple
-from vertexai.generative_models import GenerativeModel
-import vertexai
-from google.cloud import aiplatform
-from config import VertexAIConfig
 
 
 # Configure logging
@@ -28,20 +24,6 @@ class BDDJavaExtractor:
         self.output_file = output_file
         self.step_definitions: Dict[str, Dict[str, Any]] = {}
         self.bdd_java_pairs: List[Dict[str, Any]] = []
-        
-        # Initialize Vertex AI configuration
-        self.vertex_config = VertexAIConfig()
-        
-        # Initialize Vertex AI
-        try:
-            vertexai.init(
-                project=self.vertex_config.project_id,
-                location=self.vertex_config.location
-            )
-            logger.info("Successfully initialized Vertex AI")
-        except Exception as e:
-            logger.error(f"Error initializing Vertex AI: {str(e)}")
-            raise
         
         logger.info(f"Initialized BDDJavaExtractor with feature_dir={feature_dir}, java_dir={java_dir}")
         
