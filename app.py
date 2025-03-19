@@ -4,10 +4,15 @@ import chromadb
 import shutil
 import json
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Union, Optional
 import uvicorn
+from scenario_search import ScenarioSearch
+from fastapi.middleware.cors import CORSMiddleware
 
 # Configure logging
 logging.basicConfig(
@@ -17,176 +22,82 @@ logging.basicConfig(
 )
 logger = logging.getLogger('scenario_api')
 
-app = FastAPI(title="Scenario Search API", description="API for searching scenarios using vector similarity")
+# Configuration for LLM choice
+USE_GPT4 = True  # Set to False to use Gemini
 
-class QueryRequest(BaseModel):
-    query: str
-    n_results: Optional[int] = 3
+# Import appropriate BDD generator based on configuration
+if USE_GPT4:
+    from bdd_generator_gpt4 import BDDGenerator
+    logger.info("Using GPT-4 for BDD generation")
+else:
+    from bdd_generator import BDDGenerator  # Gemini version
+    logger.info("Using Gemini for BDD generation")
 
-class ScenarioResult(BaseModel):
+app = FastAPI(title="BDD Assistant", description="API for scenario search and BDD generation")
+
+# Initialize components
+scenario_searcher = ScenarioSearch()
+bdd_generator = BDDGenerator()
+
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Data models
+class ScenarioRequest(BaseModel):
     scenario: str
-    similarity: float
-    feature: str
-    packages: Optional[List[str]]
-    bdd_steps: List[str]
-    example: Optional[List[str]]
 
-class SearchResponse(BaseModel):
-    results: List[ScenarioResult]
+class BDDRequest(BaseModel):
+    criteria: str
+    feature_name: str
 
-def read_csv(input_file: str) -> pd.DataFrame:
-    """Read CSV file using pandas."""
-    logger.info(f"Reading CSV file: {input_file}")
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    # Pass LLM choice to template
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "using_gpt4": USE_GPT4
+    })
+
+@app.get("/llm_info")
+async def get_llm_info():
+    """Endpoint to get current LLM configuration"""
+    return {
+        "model": "GPT-4" if USE_GPT4 else "Gemini",
+        "version": "gpt-4o-mini" if USE_GPT4 else "gemini-1.5-pro-flash"
+    }
+
+@app.post("/search_scenario")
+async def search_scenario(request: ScenarioRequest):
+    matches = scenario_searcher.find_similar_scenarios(request.scenario, n_results=3)
+    return matches
+
+@app.post("/generate_bdd")
+async def generate_bdd(request: BDDRequest):
     try:
-        df = pd.read_csv(input_file)
-        
-        # Convert JSON strings to Python lists
-        for column in ['Packages', 'BDD', 'Example']:
-            df[column] = df[column].apply(lambda x: json.loads(x) if pd.notna(x) else [])
-        
-        logger.info(f"Successfully loaded {len(df)} rows from CSV")
-        return df
-    except Exception as e:
-        logger.error(f"Error reading CSV file: {str(e)}")
-        raise
-
-def setup_vector_db() -> chromadb.Client:
-    """Set up ChromaDB client and ensure collection exists."""
-    # Get the root directory path
-    root_dir = os.path.dirname(os.path.abspath(__file__))
-    db_path = os.path.join(root_dir, "chroma_db")
-    
-    logger.info(f"Setting up vector database at: {db_path}")
-    
-    # clear and create the db directory
-    if os.path.exists(db_path):
-        logger.info(f"Removing existing database directory: {db_path}")
-        shutil.rmtree(db_path)
-    os.makedirs(db_path)
-    logger.info(f"Created fresh database directory: {db_path}")
-    
-    # Initialize ChromaDB client
-    try:
-        client = chromadb.PersistentClient(path=db_path)
-        logger.info("Created ChromaDB persistent client")
-        
-        # Create collection
-        collection = client.create_collection("scenarios")
-        logger.info("Created 'scenarios' collection")
-        
-        return client
-    except Exception as e:
-        logger.error(f"Error setting up vector database: {str(e)}")
-        raise
-
-def load_data_to_chroma(client: chromadb.Client, df: pd.DataFrame):
-    """Load data from DataFrame to ChromaDB."""
-    logger.info("Loading data to ChromaDB")
-    collection = client.get_collection("scenarios")
-    
-    # Check if collection is empty
-    if collection.count() == 0:
-        # Prepare data for insertion
-        ids = [f"scenario_{i}" for i in range(len(df))]
-        documents = df['Scenario'].tolist()
-        metadatas = []
-        
-        for _, row in df.iterrows():
-            # Convert None values to empty strings to avoid ChromaDB error
-            metadata = {
-                "feature": row['Feature'] if pd.notna(row['Feature']) else "",
-                "packages": json.dumps(row['Packages']),  # Store lists as JSON strings
-                "bdd": json.dumps(row['BDD']),
-                "example": json.dumps(row['Example'])
-            }
-            metadatas.append(metadata)
-        
-        logger.info(f"Adding {len(documents)} scenarios to ChromaDB")
-        
-        # Add data to collection
-        collection.add(
-            ids=ids,
-            documents=documents,
-            metadatas=metadatas
+        feature_content, java_content = bdd_generator.generate_feature_and_steps(
+            request.criteria,
+            request.feature_name
         )
-        
-        logger.info(f"Successfully added {collection.count()} documents to ChromaDB")
-
-def search_scenarios(
-    client: chromadb.Client,
-    query: str,
-    n_results: int = 3
-) -> Dict[str, Any]:
-    """Search for similar scenarios using semantic search."""
-    logger.info(f"Searching for: '{query}' (top {n_results} results)")
-    collection = client.get_collection("scenarios")
-    
-    # Get total number of documents
-    total_docs = collection.count()
-    # Adjust n_results if it's greater than total documents
-    n_results = min(n_results, total_docs)
-    
-    results = collection.query(
-        query_texts=[query],
-        n_results=n_results,
-        include=["documents", "metadatas", "distances"]
-    )
-    
-    logger.info(f"Found {len(results['documents'][0])} matching scenarios")
-    return results
-
-@app.post("/get_scenario", response_model=SearchResponse)
-async def get_scenario(request: QueryRequest):
-    logger.info(f"Received request: query='{request.query}', n_results={request.n_results}")
-    
-    try:
-        # Read CSV data
-        df = read_csv('output.csv')
-        
-        # Setup vector database
-        client = setup_vector_db()
-        
-        # Load data to Chroma if needed
-        load_data_to_chroma(client, df)
-        
-        # Search for scenarios
-        results = search_scenarios(client, request.query, request.n_results)
-        
-        # Format response
-        response_results = []
-        for i in range(len(results['documents'][0])):
-            scenario = results['documents'][0][i]
-            distance = results['distances'][0][i]
-            metadata = results['metadatas'][0][i]
-            
-            # Parse JSON strings back to lists
-            packages = json.loads(metadata.get('packages', '[]'))
-            bdd_steps = json.loads(metadata.get('bdd', '[]'))
-            example = json.loads(metadata.get('example', '[]'))
-            
-            # Convert empty lists to None for optional fields
-            packages = packages if packages else None
-            example = example if example else None
-            
-            result = ScenarioResult(
-                scenario=scenario,
-                similarity=round(1 - distance, 2),  # Convert distance to similarity score
-                feature=metadata.get('feature', ''),
-                packages=packages,
-                bdd_steps=bdd_steps,
-                example=example
-            )
-            response_results.append(result)
-        
-        logger.info(f"Returning {len(response_results)} results")
-        return SearchResponse(results=response_results)
-    
+        return {
+            'feature_file': feature_content,
+            'step_definitions': java_content,
+            'model_used': "GPT-4" if USE_GPT4 else "Gemini"
+        }
     except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+        logger.error(f"Error generating BDD: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    logger.info("Starting FastAPI server")
+    model_name = "GPT-4" if USE_GPT4 else "Gemini"
+    logger.info(f"Starting FastAPI server using {model_name}")
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True) 

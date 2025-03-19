@@ -1,0 +1,83 @@
+.code-area {
+    font-family: monospace;
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.tab-content {
+    padding: 20px;
+    border: 1px solid #dee2e6;
+    border-top: none;
+    border-radius: 0 0 5px 5px;
+}
+
+/* Add some nice styling for the output */
+.code-area {
+    position: relative;
+    background-color: #2d2d2d;
+    color: #f8f8f2;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* Add copy button styling */
+.copy-btn {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    padding: 5px 10px;
+    background: #4a4a4a;
+    border: none;
+    border-radius: 3px;
+    color: white;
+    cursor: pointer;
+}
+
+.copy-btn:hover {
+    background: #666;
+}
+
+/* Scenario search specific styling */
+.scenario-results {
+    max-height: 500px;
+    overflow-y: auto;
+    background-color: #2d2d2d;
+    border-radius: 5px;
+    padding: 10px;
+}
+
+.scenario-card {
+    background-color: #383838;
+    border-radius: 5px;
+    margin-bottom: 15px;
+    padding: 15px;
+}
+
+.scenario-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #4a4a4a;
+}
+
+.scenario-tags {
+    color: #7cb342;
+}
+
+.similarity-score {
+    color: #64b5f6;
+    font-weight: bold;
+}
+
+.scenario-content {
+    color: #f8f8f2;
+    font-family: monospace;
+    white-space: pre-wrap;
+    font-size: 14px;
+    line-height: 1.5;
+} 
