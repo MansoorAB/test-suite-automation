@@ -239,93 +239,52 @@ class BDDJavaExtractor:
         return pattern
     
     def _find_matching_implementation(self, step_text: str) -> Optional[Dict[str, Any]]:
-        """Find the Java implementation that matches this step text using Gemini"""
+        """Find the Java implementation that matches this step text using direct pattern matching"""
         logger.debug(f"Finding implementation for step: {step_text}")
         
-        # Create a few-shot prompt with examples that better match your patterns
-        few_shot_examples = """
-        BDD Step: user verifies "Welcome to InSight!" popup and click "Next"
-        Available Pattern: ^user verifies "([^"]*)" popup and click "([^"]*)"$
-        ✓ MATCHES - because the text between quotes in BDD matches with ([^"]*) in pattern
-
-        BDD Step: user verifies popup title "Sidebar Menu" and click "Next"
-        Available Pattern: ^user verifies popup title "([^"]*)" and click "([^"]*)"$
-        ✓ MATCHES - because both the fixed text and parameterized parts align
-
-        BDD Step: user clicks on save button from drop down
-        Available Pattern: ^user clicks on save button from drop down$
-        ✓ MATCHES - exact text match with no parameters
-
-        BDD Step: user enters "admin@test.com" in the email field
-        Available Pattern: ^user enters "([^"]*)" in the email field$
-        ✓ MATCHES - single parameter in quotes matches ([^"]*) pattern
-
-        BDD Step: user selects format "PDF" from drop down
-        Available Pattern: ^user selects format "([^"]*)" from drop down$
-        ✓ MATCHES - fixed text with one parameter
-        """
+        def normalize_step(text: str) -> Tuple[str, List[str]]:
+            """Convert a step text into a normalized form and extract quoted parameters"""
+            # Extract all quoted strings
+            quoted_texts = re.findall(r'"([^"]+)"', text)
+            # Replace quoted strings with a placeholder
+            normalized = re.sub(r'"[^"]+"', 'QUOTED_PARAM', text)
+            return normalized, quoted_texts
         
-        # Create the prompt for the current step
-        prompt = f"""
-        You are a pattern matching expert for Cucumber step definitions. Given a BDD step and available patterns, find the EXACT matching pattern.
-
-        Rules for matching:
-        1. Fixed text parts must match exactly (case-sensitive)
-        2. Text between quotes in BDD step (like "Welcome") matches with ([^"]*) in pattern
-        3. Pattern must account for entire step text, not partial matches
-        4. Pattern should start with ^ and end with $
-        5. Return ONLY the matching pattern, nothing else
-        6. If no pattern matches exactly, return "null"
-
-        Examples:
-        {few_shot_examples}
-
-        Available patterns:
-        {json.dumps([impl_data["pattern"] for impl_data in self.step_definitions.values()], indent=2)}
-
-        BDD Step: {step_text}
-
-        Return ONLY the matching pattern or "null". No explanation:"""
+        def matches_pattern(step: str, pattern: str) -> bool:
+            """Check if a step matches a Cucumber pattern"""
+            try:
+                # Remove ^ and $ from pattern
+                pattern = pattern.strip('^$')
+                
+                # Extract quoted parameters from step
+                step_norm, step_params = normalize_step(step)
+                
+                # Convert Cucumber pattern to comparable form
+                pattern_norm = re.sub(r'"?\(\[\^"\]\*\)"?', 'QUOTED_PARAM', pattern)
+                
+                # Compare normalized forms
+                if step_norm == pattern_norm:
+                    logger.debug(f"Found match: {pattern}")
+                    return True
+                    
+                return False
+                
+            except Exception as e:
+                logger.error(f"Error in pattern matching: {str(e)}")
+                return False
         
         try:
-            # Create model instance
-            model = GenerativeModel("gemini-1.5-pro")
-            
-            # Set up generation config for precise output
-            generation_config = {
-                "temperature": 0.1,  # Very low temperature for deterministic output
-                "top_p": 0.1,       # More focused sampling
-                "top_k": 1,         # Most likely token only
-                "max_output_tokens": 100,
-            }
-            
-            # Generate response
-            response = model.generate_content(
-                prompt,
-                generation_config=generation_config,
-                safety_settings={"HARM_CATEGORY_DANGEROUS_CONTENT": "block_none"}
-            )
-            
-            predicted_pattern = response.text.strip()
-            logger.debug(f"LLM predicted pattern: {predicted_pattern}")
-            
-            # Handle null response
-            if predicted_pattern.lower() == "null":
-                logger.debug("LLM found no matching pattern")
-                return None
-            
-            # Find the implementation data for the predicted pattern
-            for impl_data in self.step_definitions.values():
-                if impl_data["pattern"] == predicted_pattern:
-                    logger.debug(f"Found match using LLM: {predicted_pattern}")
+            # Try to find exact match
+            for pattern, impl_data in self.step_definitions.items():
+                if matches_pattern(step_text, impl_data["pattern"]):
+                    logger.debug(f"Found matching implementation for: {step_text}")
                     return impl_data
             
-            logger.debug(f"No implementation found for predicted pattern: {predicted_pattern}")
+            logger.debug(f"No matching implementation found for: {step_text}")
             return None
             
         except Exception as e:
-            logger.error(f"Error using LLM for pattern matching: {str(e)}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error finding implementation: {str(e)}")
             return None
     
     def save_to_json(self) -> None:
