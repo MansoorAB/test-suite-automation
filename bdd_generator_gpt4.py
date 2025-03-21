@@ -44,27 +44,50 @@ class BDDGenerator:
 
     def generate_step_implementation(self, step_text: str) -> Dict:
         """Get implementation for a step - either existing or generated"""
-        return self.rag.get_implementation(step_text)
+        logger.info(f"Processing step: {step_text}")
+        result = self.rag.get_implementation(step_text)
+        
+        if result['type'] == 'existing':
+            logger.info(f"Found existing implementation with similarity: {result['similarity']:.2f}")
+        else:
+            logger.info(f"Generated new implementation with {result.get('examples_used', 0)} examples")
+        
+        return result
 
-    def generate_feature_and_steps(self, acceptance_criteria: str, feature_name: str) -> tuple[str, str]:
+    def generate_feature_and_steps(self, acceptance_criteria: str, feature_name: str, stats=None) -> tuple[str, str]:
         """Generate both feature file and step definitions"""
-        # Generate feature file first
+        # Initialize stats if not provided
+        if stats is None:
+            stats = {
+                'total_steps': 0,
+                'retrieved_steps': 0,
+                'generated_steps': 0,
+                'examples_used': []
+            }
+        
+        # Generate feature file
         feature_content = self.generate_feature_file(feature_name, acceptance_criteria)
         
-        # Extract all steps from the generated feature
+        # Extract steps from feature file
         steps = self._extract_steps(feature_content)
+        stats['total_steps'] = len(steps)
         
-        # Generate or find implementations for each step
-        java_implementations = []
+        # Generate implementations for each step
+        implementations = []
         for step in steps:
-            logger.info(f"\nProcessing step: {step}")
             result = self.generate_step_implementation(step)
+            implementations.append(result['implementation'])
             
-            implementation = result.get('implementation', '')
-            java_implementations.append(implementation)
-
-        # Combine all implementations into a single Java file
-        java_content = self._create_java_file(feature_name, java_implementations)
+            # Track statistics
+            if result['type'] == 'existing':
+                stats['retrieved_steps'] += 1
+            else:
+                stats['generated_steps'] += 1
+                if 'examples_used' in result:
+                    stats['examples_used'].append(result['examples_used'])
+        
+        # Create Java file
+        java_content = self._create_java_file(feature_name, implementations)
         
         return feature_content, java_content
 
@@ -83,16 +106,17 @@ class BDDGenerator:
         
         java_content = f"""package stepdefinitions;
 
-import io.cucumber.java.en.*;
-import org.junit.Assert;
-import org.openqa.selenium.WebElement;
-import org.openqa.selenium.support.ui.ExpectedConditions;
+                        import io.cucumber.java.en.*;
+                        import org.junit.Assert;
+                        import org.openqa.selenium.WebElement;
+                        import org.openqa.selenium.support.ui.ExpectedConditions;
 
-public class {class_name} {{
-    
-{chr(10).join(implementations)}
+                        public class {class_name} {{
+                            
+                        {chr(10).join(implementations)}
 
-}}"""
+                        }}"""
+        
         return java_content
 
     def save_java_file(self, content: str, feature_name: str) -> str:
@@ -112,35 +136,36 @@ public class {class_name} {{
     def generate_feature_file(self, feature_name: str, acceptance_criteria: str) -> Dict[str, Any]:
         """Generate a feature file from acceptance criteria"""
         prompt = f"""Convert this acceptance criteria into a Gherkin feature file.
-The feature file must be specific to these acceptance criteria and should not generate generic login scenarios.
+                The feature file must be specific to these acceptance criteria and should not generate generic login scenarios.
 
-Feature: {feature_name}
+                Feature: {feature_name}
 
-Requirements:
-1. Create scenarios that EXACTLY match the provided acceptance criteria
-2. Do not generate generic login scenarios
-3. Use specific steps that match the acceptance criteria
-4. Include all validations mentioned in acceptance criteria
-5. Tag scenarios with @smoke @regression
+                Requirements:
+                1. Create scenarios that EXACTLY match the provided acceptance criteria
+                2. Do not generate generic login scenarios
+                3. Use specific steps that match the acceptance criteria
+                4. Include all validations mentioned in acceptance criteria
+                5. Tag scenarios with @smoke @regression
 
-Acceptance Criteria:
-{acceptance_criteria}
+                Acceptance Criteria:
+                {acceptance_criteria}
 
-Example format for reference:
-@smoke @regression
-Scenario: [Specific scenario from acceptance criteria]
-  Given [specific precondition]
-  When [specific action from acceptance criteria]
-  And [additional specific action if needed]
-  Then [specific expected result]
-  And [additional verification if needed]
+                Example format for reference:
+                @smoke @regression
+                Scenario: [Specific scenario from acceptance criteria]
+                Given [specific precondition]
+                When [specific action from acceptance criteria]
+                And [additional specific action if needed]
+                Then [specific expected result]
+                And [additional verification if needed]
 
-Generate a complete .feature file with scenarios that match ONLY the provided acceptance criteria."""
+                Generate a complete .feature file with scenarios that match ONLY the provided acceptance criteria."""
 
         response = openai.ChatCompletion.create(
             model=self.model,
             messages=[
-                {"role": "system", "content": "You are a BDD expert. Generate feature files that exactly match the provided acceptance criteria. Do not generate generic login scenarios."},
+                {"role": "system", "content": "You are a BDD expert. \
+                 Generate feature files that exactly match the provided acceptance criteria. Do not generate generic login scenarios."},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2
@@ -173,28 +198,28 @@ def main():
         {
             "name": "Document Upload",
             "criteria": """
-As a user, I need to upload documents to the system
-Acceptance Criteria:
-1. User can upload PDF files up to 10MB
-2. System validates file type and size
-3. User can add metadata (title, type, tags)
-4. System generates thumbnail for uploaded document
-5. User receives confirmation after successful upload
-6. System should show error for invalid files
-            """
-        },
-        {
-            "name": "Search Functionality",
-            "criteria": """
-As a user, I need to search for documents
-Acceptance Criteria:
-1. User can search by document title, type, and content
-2. Search results show document title, type, and upload date
-3. User can filter results by date range
-4. System highlights matching terms in results
-5. Results are paginated with 10 items per page
-6. User can sort results by different fields
-            """
+                As a user, I need to upload documents to the system
+                Acceptance Criteria:
+                1. User can upload PDF files up to 10MB
+                2. System validates file type and size
+                3. User can add metadata (title, type, tags)
+                4. System generates thumbnail for uploaded document
+                5. User receives confirmation after successful upload
+                6. System should show error for invalid files
+                            """
+                        },
+                        {
+                            "name": "Search Functionality",
+                            "criteria": """
+                As a user, I need to search for documents
+                Acceptance Criteria:
+                1. User can search by document title, type, and content
+                2. Search results show document title, type, and upload date
+                3. User can filter results by date range
+                4. System highlights matching terms in results
+                5. Results are paginated with 10 items per page
+                6. User can sort results by different fields
+                            """
         }
     ]
     

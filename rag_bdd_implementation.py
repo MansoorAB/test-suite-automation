@@ -115,7 +115,41 @@ class BDDImplementationRAG:
         return None
 
     def generate_implementation(self, step_text: str) -> Dict[str, Any]:
-        """Generate a new implementation for a step"""
+        """Generate a new implementation for a step using true RAG approach"""
+        # First, retrieve top N similar steps regardless of threshold
+        normalized_step = self.normalize_step(step_text)
+        
+        # Get top 3 similar steps
+        results = self.collection.query(
+            query_texts=[normalized_step],
+            n_results=3  # Retrieve top 3 similar steps
+        )
+        
+        # Extract examples from results
+        examples = []
+        for i in range(min(3, len(results['metadatas'][0]))):
+            metadata = results['metadatas'][0][i]
+            similarity = 1 - results['distances'][0][i]
+            
+            # Only include reasonably similar examples with implementation
+            if similarity > 0.5 and 'implementation' in metadata and 'pattern' in metadata:
+                examples.append({
+                    'step': metadata.get('original_step', ''),
+                    'pattern': metadata.get('pattern', ''),
+                    'implementation': metadata.get('implementation', ''),
+                    'similarity': similarity
+                })
+        
+        # Build a prompt that includes the examples
+        examples_text = ""
+        if examples:
+            examples_text = "Here are some similar step implementations for reference:\n\n"
+            for i, example in enumerate(examples, 1):
+                examples_text += f"Example {i} (Similarity: {example['similarity']:.2f}):\n"
+                examples_text += f"Step: {example['step']}\n"
+                examples_text += f"Pattern: {example['pattern']}\n"
+                examples_text += f"Implementation:\n{example['implementation']}\n\n"
+        
         prompt = f"""Generate a complete Java step definition implementation for this Cucumber step:
 {step_text}
 
@@ -126,8 +160,10 @@ Requirements:
 3. Follow this exact pattern format for all quoted parameters
 4. Do not use {{{{string}}}} or any other format
 5. Use descriptive method names based on the step text
+6. Maintain consistency with the example implementations provided
 
-Example:
+{examples_text}
+For reference, here's a basic example:
 For step: user enters "username" in login field
 Implementation:
 @When("^user enters \"([^\"]*)\" in login field$")
@@ -140,6 +176,8 @@ public void userEntersUsername(String username) {{
 
 Important: Always use \"([^\"]*)\" for parameters, never {{{{string}}}} or other formats.
 Generate a complete implementation with actual code, not placeholder comments."""
+
+        logger.debug(f"RAG Prompt with {len(examples)} examples:\n{prompt}")
 
         generation_config = {
             "temperature": 0.2,
@@ -158,7 +196,8 @@ Generate a complete implementation with actual code, not placeholder comments.""
         return {
             'type': 'generated',
             'implementation': implementation.strip(),
-            'similarity': 0.0
+            'similarity': 0.0,
+            'examples_used': len(examples)
         }
 
     def get_implementation(self, step_text: str) -> Dict:
@@ -195,16 +234,57 @@ def main():
         'user configures auto-reminder for "weekly" with message "Update case status"'
     ]
     
+    # Track statistics
+    stats = {
+        'total': len(test_steps),
+        'retrieved': 0,
+        'generated': 0,
+        'examples_used': []
+    }
+    
     for step in test_steps:
         result = rag.get_implementation(step)
         logger.info("\n" + "="*80)
         logger.info(f"Step: {step}")
         logger.info(f"Type: {result['type']}")
+        
         if result['type'] == 'existing':
             logger.info(f"Similarity: {result['similarity']:.2f}")
             logger.info(f"Pattern: {result['pattern']}")
+            stats['retrieved'] += 1
+        else:
+            logger.info(f"Examples used: {result.get('examples_used', 0)}")
+            stats['generated'] += 1
+            stats['examples_used'].append(result.get('examples_used', 0))
+            
         logger.info("Implementation:")
         logger.info(result['implementation'])
+    
+    # Log statistics
+    logger.info("\n" + "="*80)
+    logger.info("IMPLEMENTATION STATISTICS")
+    logger.info("="*80)
+    logger.info(f"Total steps processed: {stats['total']}")
+    logger.info(f"Retrieved implementations: {stats['retrieved']} ({stats['retrieved']/stats['total']*100:.1f}%)")
+    logger.info(f"Generated implementations: {stats['generated']} ({stats['generated']/stats['total']*100:.1f}%)")
+    
+    if stats['generated'] > 0:
+        avg_examples = sum(stats['examples_used']) / len(stats['examples_used'])
+        logger.info(f"Average examples used per generation: {avg_examples:.1f}")
+        logger.info(f"Examples distribution: {stats['examples_used']}")
+    
+    # Print log file location to terminal
+    log_files = [f for f in os.listdir('./logs/rag_bdd_implementation') if f.endswith('.log')]
+    if log_files:
+        # Get the log file that was created in this run (most recent)
+        current_time = datetime.now().strftime('%H%M%S')
+        matching_logs = [f for f in log_files if f.startswith(current_time[:4])]
+        if matching_logs:
+            latest_log = sorted(matching_logs)[-1]
+            log_path = os.path.abspath(f'./logs/rag_bdd_implementation/{latest_log}')
+            print(f"\nDetailed results written to: {log_path}\n")
+        else:
+            print("\nCouldn't find the current log file.\n")
 
 if __name__ == "__main__":
     main() 

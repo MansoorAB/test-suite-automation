@@ -43,7 +43,15 @@ class BDDGenerator:
 
     def generate_step_implementation(self, step_text: str) -> Dict:
         """Get implementation for a step - either existing or generated"""
-        return self.rag.get_implementation(step_text)
+        logger.info(f"Processing step: {step_text}")
+        result = self.rag.get_implementation(step_text)
+        
+        if result['type'] == 'existing':
+            logger.info(f"Found existing implementation with similarity: {result['similarity']:.2f}")
+        else:
+            logger.info(f"Generated new implementation with {result.get('examples_used', 0)} examples")
+        
+        return result
 
     def generate_feature_file(self, acceptance_criteria: str, feature_name: str) -> str:
         """Generate BDD feature file from acceptance criteria"""
@@ -96,25 +104,40 @@ Acceptance Criteria:
         logger.info(feature_content)
         return feature_content
 
-    def generate_feature_and_steps(self, acceptance_criteria: str, feature_name: str) -> tuple[str, str]:
+    def generate_feature_and_steps(self, acceptance_criteria: str, feature_name: str, stats=None) -> tuple[str, str]:
         """Generate both feature file and step definitions"""
-        # Generate feature file first
+        # Initialize stats if not provided
+        if stats is None:
+            stats = {
+                'total_steps': 0,
+                'retrieved_steps': 0,
+                'generated_steps': 0,
+                'examples_used': []
+            }
+        
+        # Generate feature file
         feature_content = self.generate_feature_file(acceptance_criteria, feature_name)
         
-        # Extract all steps from the generated feature
+        # Extract steps from feature file
         steps = self._extract_steps(feature_content)
+        stats['total_steps'] = len(steps)
         
-        # Generate or find implementations for each step
-        java_implementations = []
+        # Generate implementations for each step
+        implementations = []
         for step in steps:
-            logger.info(f"\nProcessing step: {step}")
             result = self.generate_step_implementation(step)
+            implementations.append(result['implementation'])
             
-            implementation = result.get('implementation', '')
-            java_implementations.append(implementation)
-
-        # Combine all implementations into a single Java file
-        java_content = self._create_java_file(feature_name, java_implementations)
+            # Track statistics
+            if result['type'] == 'existing':
+                stats['retrieved_steps'] += 1
+            else:
+                stats['generated_steps'] += 1
+                if 'examples_used' in result:
+                    stats['examples_used'].append(result['examples_used'])
+        
+        # Create Java file
+        java_content = self._create_java_file(feature_name, implementations)
         
         return feature_content, java_content
 
