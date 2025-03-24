@@ -7,7 +7,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
-from bdd_generator_gpt4 import BDDGenerator
+from bdd_generator_gpt4 import BDDGenerator as GPT4Generator
+from bdd_generator import BDDGenerator as VertexGenerator
 from scenario_search import ScenarioSearch
 
 def print_with_timestamp(message: str):
@@ -65,9 +66,20 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+# Get model type from environment variable (default to gpt4)
+MODEL_TYPE = os.getenv("MODEL_TYPE", "gpt4").lower()
+print_with_timestamp(f"Using model type: {MODEL_TYPE}")
+
+# Initialize the appropriate generator based on MODEL_TYPE
+if MODEL_TYPE == "vertex":
+    bdd_generator = VertexGenerator()
+    print_with_timestamp("Initialized Vertex AI Generator")
+else:
+    bdd_generator = GPT4Generator()
+    print_with_timestamp("Initialized GPT-4 Generator")
+
 # Initialize components
 print("Initializing BDD Generator and Scenario Search...")
-bdd_generator = BDDGenerator()
 scenario_search = ScenarioSearch()
 logger.info(f"Using {bdd_generator.model} for BDD generation")
 print(f"Using {bdd_generator.model} for BDD generation")
