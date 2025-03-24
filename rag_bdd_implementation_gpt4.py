@@ -293,12 +293,12 @@ def main():
     logger.info("IMPLEMENTATION STATISTICS")
     logger.info("="*80)
     logger.info(f"Total steps processed: {stats['total']}")
-    logger.info(f"Retrieved implementations: {stats['retrieved']} ({stats['retrieved']/stats['total']*100:.1f}%)")
-    logger.info(f"Generated implementations: {stats['generated']} ({stats['generated']/stats['total']*100:.1f}%)")
+    logger.info(f"Retrieved implementations: {stats['retrieved']} ({stats['retrieved']/stats['total']*100:.2f}%)")
+    logger.info(f"Generated implementations: {stats['generated']} ({stats['generated']/stats['total']*100:.2f}%)")
     
     if stats['generated'] > 0:
         avg_examples = sum(stats['examples_used']) / len(stats['examples_used'])
-        logger.info(f"Average examples used per generation: {avg_examples:.1f}")
+        logger.info(f"Average examples used per generation: {avg_examples:.2f}")
         logger.info(f"Examples distribution: {stats['examples_used']}")
     
     # Print log file location to terminal

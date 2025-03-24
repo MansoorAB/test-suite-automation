@@ -134,7 +134,9 @@ class BDDGenerator:
         return filename
 
     def generate_feature_file(self, feature_name: str, acceptance_criteria: str) -> Dict[str, Any]:
+
         """Generate a feature file from acceptance criteria"""
+        
         prompt = f"""Convert this acceptance criteria into a Gherkin feature file.
                 The feature file must be specific to these acceptance criteria and should not generate generic login scenarios.
 

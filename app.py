@@ -93,6 +93,15 @@ async def search_scenario(request: dict):
     
     return matches
 
+def compact_lists(obj):
+    """Recursively formats lists as single-line strings where applicable."""
+    if isinstance(obj, dict):
+        return {k: compact_lists(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return json.dumps(obj, separators=(',', ':'))  # Convert list to a compact JSON string
+    else:
+        return obj
+
 @app.post("/generate_bdd")
 async def generate_bdd(request: dict):
     criteria = request.get("criteria", "")
@@ -188,6 +197,7 @@ async def generate_bdd(request: dict):
     print("="*80)
     
     # Create summary.json
+        
     summary = {
         "timestamp": timestamp,
         "feature_name": feature_name,
@@ -198,16 +208,21 @@ async def generate_bdd(request: dict):
             "total_steps": stats['total_steps'],
             "retrieved_steps": stats['retrieved_steps'],
             "generated_steps": stats['generated_steps'],
-            "retrieval_percentage": (stats['retrieved_steps'] / stats['total_steps'] * 100) if stats['total_steps'] > 0 else 0,
-            "generation_percentage": (stats['generated_steps'] / stats['total_steps'] * 100) if stats['total_steps'] > 0 else 0,
+            "retrieval_percentage": round((stats['retrieved_steps'] / stats['total_steps'] * 100), 2) if stats['total_steps'] > 0 else 0,
+            "generation_percentage": round((stats['generated_steps'] / stats['total_steps'] * 100), 2) if stats['total_steps'] > 0 else 0,
             "examples_used": stats['examples_used'],
-            "average_examples_per_generation": (sum(stats['examples_used']) / len(stats['examples_used'])) if stats['examples_used'] else 0
+            "average_examples_per_generation": round((sum(stats['examples_used']) / len(stats['examples_used'])), 2) \
+                                                    if stats['examples_used'] else 0
         }
     }
     
     summary_path = f'{output_dir}/summary.json'
+    
+    # Process the summary to format lists before dumping
+    formatted_summary = compact_lists(summary)
     with open(summary_path, 'w') as f:
-        json.dump(summary, f, indent=2)
+        json.dump(formatted_summary, f, indent=4)
+        # json.dump(summary, f, indent=2)
     
     print_with_timestamp(f"Created summary file: {os.path.abspath(summary_path)}")
     
