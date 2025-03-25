@@ -58,21 +58,23 @@ Usage
 
 Directory Structure
 -----------------
+```
 /
-├── app.py                      # Main FastAPI application
-├── bdd_generator.py            # Vertex AI implementation
-├── bdd_generator_gpt4.py      # GPT-4 implementation
-├── rag_bdd_implementation.py   # RAG implementation for Vertex
-├── rag_bdd_implementation_gpt4.py # RAG implementation for GPT-4
-├── scenario_search.py         # Search functionality
-├── static/                    # Static web assets
-├── templates/                 # HTML templates
-├── output/                    # Generated files
-│   ├── features/             # Generated feature files
-│   ├── step_definitions/     # Generated Java files
-│   └── summary.json          # Generation statistics
-└── logs/                     # Application logs
-    └── app/                  # Log files
+├── app.py                          # Main FastAPI application
+├── bdd_generator.py                # Vertex AI implementation
+├── bdd_generator_gpt4.py          # GPT-4 implementation
+├── rag_bdd_implementation.py       # RAG implementation for Vertex
+├── rag_bdd_implementation_gpt4.py  # RAG implementation for GPT-4
+├── scenario_search.py             # Search functionality
+├── static/                        # Static web assets
+├── templates/                     # HTML templates
+├── output/                        # Generated files
+│   ├── features/                 # Generated feature files
+│   ├── step_definitions/         # Generated Java files
+│   └── summary.json             # Generation statistics
+└── logs/                         # Application logs
+    └── app/                      # Log files
+```
 
 Module Info
 ----------
