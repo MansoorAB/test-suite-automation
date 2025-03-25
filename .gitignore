@@ -167,7 +167,6 @@ cython_debug/
 chroma_db/
 output.csv
 bdd_java_pairs.json
-*.feature
 
 # New additions
 __pycache__/
